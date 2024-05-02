@@ -51,6 +51,7 @@ defmodule VintageNetEthernet.MixProject do
   defp deps do
     [
       {:vintage_net, "~> 0.12.0 or ~> 0.13.0"},
+      {:vintage_net_supplicant, github: "underjord/vintage_net_supplicant"},
       {:credo, "~> 1.2", only: :test, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:ex_doc, "~> 0.22", only: :docs, runtime: false}
