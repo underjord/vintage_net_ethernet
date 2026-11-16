@@ -33,6 +33,92 @@ defmodule VintageNetEthernetTest do
     assert output == Ethernet.to_raw_config("eth0", input, Utils.default_opts())
   end
 
+  test "create an IEEE 802.1X configuration" do
+    input = %{
+      type: Ethernet,
+      vintage_net_ethernet: %{
+        key_mgmt: :IEEE8021X,
+        eap: "PEAP",
+        identity: "user",
+        password: "password",
+        phase2: "auth=MSCHAPV2"
+      },
+      ipv4: %{method: :dhcp},
+      hostname: "unit_test"
+    }
+
+    output = %RawConfig{
+      ifname: "eth0",
+      type: Ethernet,
+      source_config: input,
+      required_ifnames: ["eth0"],
+      restart_strategy: :rest_for_one,
+      files: [
+        {"/tmp/vintage_net/wpa_supplicant.conf.eth0",
+         """
+         ctrl_interface=/tmp/vintage_net/wpa_supplicant
+         network={
+         key_mgmt=IEEE8021X
+         identity="user"
+         password="password"
+         eap=PEAP
+         phase2="auth=MSCHAPV2"
+         }
+         """}
+      ],
+      cleanup_files: ["/tmp/vintage_net/wpa_supplicant/eth0"],
+      child_specs: [
+        {VintageNetSupplicant.WPASupplicant,
+         [
+           wpa_supplicant: "wpa_supplicant",
+           ifname: "eth0",
+           driver: "wired",
+           wpa_supplicant_conf_path: "/tmp/vintage_net/wpa_supplicant.conf.eth0",
+           control_path: "/tmp/vintage_net/wpa_supplicant",
+           verbose: false
+         ]},
+        Utils.udhcpc_child_spec("eth0", "unit_test"),
+        {VintageNet.Connectivity.InternetChecker, "eth0"}
+      ],
+      down_cmds: [
+        {:run_ignore_errors, "ip", ["addr", "flush", "dev", "eth0", "label", "eth0"]},
+        {:run, "ip", ["link", "set", "eth0", "down"]}
+      ],
+      up_cmds: [{:run, "ip", ["link", "set", "eth0", "up"]}]
+    }
+
+    assert output == Ethernet.to_raw_config("eth0", input, Utils.default_opts())
+  end
+
+  test "create a configuration with a raw wpa_supplicant.conf" do
+    conf = """
+    ap_scan=0
+    network={
+    key_mgmt=IEEE8021X
+    eap=TLS
+    }
+    """
+
+    input = %{
+      type: Ethernet,
+      vintage_net_ethernet: %{wpa_supplicant_conf: conf},
+      verbose: true,
+      ipv4: %{method: :dhcp},
+      hostname: "unit_test"
+    }
+
+    raw_config = Ethernet.to_raw_config("eth0", input, Utils.default_opts())
+
+    assert raw_config.files == [
+             {"/tmp/vintage_net/wpa_supplicant.conf.eth0",
+              "ctrl_interface=/tmp/vintage_net/wpa_supplicant\n" <> conf}
+           ]
+
+    assert {VintageNetSupplicant.WPASupplicant, options} = hd(raw_config.child_specs)
+    assert options[:driver] == "wired"
+    assert options[:verbose] == true
+  end
+
   test "create a wired ethernet configuration with custom mac address" do
     input = %{
       type: Ethernet,

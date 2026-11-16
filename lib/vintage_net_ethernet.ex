@@ -17,6 +17,12 @@ defmodule VintageNetEthernet do
     set the MAC address of the network interface to the value specified. If an
     MFArgs tuple is passed, VintageNet will `apply` it and use the return value
     as the address.
+  * `:vintage_net_ethernet` - `wpa_supplicant` options for wired IEEE 802.1X
+    or MACsec. When present, a `wpa_supplicant` is run on the interface using
+    the `wired` driver. Either pass network options like `:key_mgmt`, `:eap`,
+    `:identity` and `:password` (see `VintageNetWiFi` for their meaning) or
+    pass the contents of a `wpa_supplicant.conf` as `:wpa_supplicant_conf`.
+  * `:verbose` - Set to `true` to enable verbose `wpa_supplicant` logging
 
   An example DHCP configuration is:
 
@@ -35,6 +41,22 @@ defmodule VintageNetEthernet do
       prefix_length: 24,
       gateway: {192, 168, 0, 1}
     }
+  }
+  ```
+
+  An example IEEE 802.1X configuration is:
+
+  ```elixir
+  %{
+    type: VintageNetEthernet,
+    vintage_net_ethernet: %{
+      key_mgmt: :IEEE8021X,
+      eap: "PEAP",
+      identity: "user",
+      password: "password",
+      phase2: "auth=MSCHAPV2"
+    },
+    ipv4: %{method: :dhcp}
   }
   ```
   """
@@ -80,21 +102,31 @@ defmodule VintageNetEthernet do
 
   @impl VintageNet.Technology
   def to_raw_config(ifname, %{type: __MODULE__} = config, opts) do
+    normalized_config = normalize(config)
+
+    %RawConfig{
+      ifname: ifname,
+      type: __MODULE__,
+      source_config: normalized_config,
+      required_ifnames: [ifname]
+    }
+    |> add_supplicant_config(normalized_config, opts)
+    |> add_mac_address_config(normalized_config)
+    |> IPv4Config.add_config(normalized_config, opts)
+    |> DhcpdConfig.add_config(normalized_config, opts)
+  end
+
+  # Only run a wpa_supplicant when asked for
+  defp add_supplicant_config(raw_config, %{vintage_net_ethernet: ethernet} = config, opts) do
+    ifname = raw_config.ifname
     tmpdir = Keyword.fetch!(opts, :tmpdir)
 
     wpa_supplicant_conf_path = Path.join(tmpdir, "wpa_supplicant.conf.#{ifname}")
     control_interface_dir = Path.join(tmpdir, "wpa_supplicant")
-    # control_interface_paths = ctrl_interface_paths(ifname, control_interface_dir, config)
     verbose = Map.get(config, :verbose, false)
 
-    normalized_config = normalize(config)
-
     files = [
-      {wpa_supplicant_conf_path,
-       ethernet_to_supplicant_contents(
-         normalized_config.vintage_net_ethernet,
-         control_interface_dir
-       )}
+      {wpa_supplicant_conf_path, ethernet_to_supplicant_contents(ethernet, control_interface_dir)}
     ]
 
     wpa_supplicant_options = [
@@ -106,24 +138,16 @@ defmodule VintageNetEthernet do
       verbose: verbose
     ]
 
-    %RawConfig{
-      ifname: ifname,
-      type: __MODULE__,
-      source_config: normalized_config,
-      required_ifnames: [ifname],
-      files: files,
-      cleanup_files: [],
-      restart_strategy: :rest_for_one,
-      up_cmds: [],
-      down_cmds: [],
-      child_specs: [
-        {WPASupplicant, wpa_supplicant_options}
-      ]
+    %{
+      raw_config
+      | files: raw_config.files ++ files,
+        cleanup_files: raw_config.cleanup_files ++ [Path.join(control_interface_dir, ifname)],
+        restart_strategy: :rest_for_one,
+        child_specs: raw_config.child_specs ++ [{WPASupplicant, wpa_supplicant_options}]
     }
-    |> add_mac_address_config(normalized_config)
-    |> IPv4Config.add_config(normalized_config, opts)
-    |> DhcpdConfig.add_config(normalized_config, opts)
   end
+
+  defp add_supplicant_config(raw_config, _config, _opts), do: raw_config
 
   defp ethernet_to_supplicant_contents(
          %{wpa_supplicant_conf: conf},
@@ -221,13 +245,6 @@ defmodule VintageNetEthernet do
       into_config_string(ethernet, :pin),
       into_config_string(ethernet, :pcsc)
     ])
-  end
-
-  defp into_config_string(ethernet, opt_key) do
-    case Map.get(ethernet, opt_key) do
-      nil -> nil
-      opt -> ethernet_opt_to_config_string(ethernet, opt_key, opt)
-    end
   end
 
   defp into_config_string(ethernet, opt_key) do
