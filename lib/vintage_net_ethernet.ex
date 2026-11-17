@@ -21,7 +21,8 @@ defmodule VintageNetEthernet do
     or MACsec. When present, a `wpa_supplicant` is run on the interface using
     the `wired` driver. Either pass network options like `:key_mgmt`, `:eap`,
     `:identity` and `:password` (see `VintageNetWiFi` for their meaning) or
-    pass the contents of a `wpa_supplicant.conf` as `:wpa_supplicant_conf`.
+    pass the contents of a `wpa_supplicant.conf` as `:wpa_supplicant_conf`. This
+    requires adding `:vintage_net_supplicant` to your dependencies.
   * `:verbose` - Set to `true` to enable verbose `wpa_supplicant` logging
 
   An example DHCP configuration is:
@@ -80,11 +81,25 @@ defmodule VintageNetEthernet do
   end
 
   defp normalize_ethernet(%{vintage_net_ethernet: %{wpa_supplicant_conf: conf}} = config) do
+    check_supplicant!()
     %{config | vintage_net_ethernet: %{wpa_supplicant_conf: conf}}
+  end
+
+  defp normalize_ethernet(%{vintage_net_ethernet: _ethernet} = config) do
+    check_supplicant!()
+    config
   end
 
   defp normalize_ethernet(config) do
     config
+  end
+
+  # vintage_net_supplicant is an optional dependency
+  defp check_supplicant!() do
+    if not Code.ensure_loaded?(WPASupplicant) do
+      raise ArgumentError,
+            "The :vintage_net_ethernet options require :vintage_net_supplicant. Add it to your dependencies."
+    end
   end
 
   defp normalize_mac_address(%{mac_address: mac_address} = config) do
