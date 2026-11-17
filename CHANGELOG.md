@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+* Changes
+  * Support wired IEEE 802.1X and MACsec with the `:vintage_net_ethernet`
+    option. This requires the optional `vintage_net_supplicant` dependency.
+
 ## v0.11.2 - 2023-06-10
 
 * Changes
