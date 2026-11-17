@@ -121,6 +121,35 @@ defmodule VintageNetEthernetTest do
            """
   end
 
+  test "create an EAP-TLS configuration with the key in an HSM" do
+    assert supplicant_conf(%{
+             pkcs11_engine_path: "/usr/lib/engines-3/libpkcs11.so",
+             pkcs11_module_path: "/srv/erlang/lib/nerves_key_pkcs11-1.2.0/priv/nerves_key_pkcs11.so",
+             key_mgmt: :IEEE8021X,
+             eap: "TLS",
+             identity: "host/device.example.com",
+             ca_cert: "/data/ca.pem",
+             domain_suffix_match: "radius.example.com",
+             client_cert: "/data/cert.pem",
+             private_key: "pkcs11:token=1",
+             pin: "1234"
+           }) == """
+           ctrl_interface=/tmp/vintage_net/wpa_supplicant
+           pkcs11_engine_path=/usr/lib/engines-3/libpkcs11.so
+           pkcs11_module_path=/srv/erlang/lib/nerves_key_pkcs11-1.2.0/priv/nerves_key_pkcs11.so
+           network={
+           key_mgmt=IEEE8021X
+           eap=TLS
+           identity="host/device.example.com"
+           domain_suffix_match="radius.example.com"
+           ca_cert="/data/ca.pem"
+           client_cert="/data/cert.pem"
+           private_key="pkcs11:token=1"
+           pin="1234"
+           }
+           """
+  end
+
   test "create a MACsec PSK configuration" do
     assert supplicant_conf(%{
              key_mgmt: :none,

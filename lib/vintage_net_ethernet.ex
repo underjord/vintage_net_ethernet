@@ -47,14 +47,20 @@ defmodule VintageNetEthernet do
   The supported `wpa_supplicant` network options are `:key_mgmt`
   (`:IEEE8021X` or `:none`), the EAP options (`:eap`, `:identity`,
   `:anonymous_identity`, `:password`, `:phase1`, `:phase2`, `:eapol_flags`,
-  `:fragment_size`, `:ocsp`, `:openssl_ciphers`, `:erp`), the certificate and
-  key options (`:ca_cert`, `:client_cert`, `:private_key`,
-  `:private_key_passwd`, `:dh_file`, their phase 2 versions ending in `2`,
-  and `:pac_file`), and the MACsec options (`:macsec_policy`,
-  `:macsec_integ_only`, `:macsec_replay_protect`, `:macsec_replay_window`,
-  `:macsec_port`, `:mka_cak`, `:mka_ckn`, `:mka_priority`). See the
-  `wpa_supplicant.conf` documentation for what they do. Other options are
-  ignored.
+  `:fragment_size`, `:ocsp`, `:openssl_ciphers`, `:erp`,
+  `:domain_suffix_match`), the certificate and key options (`:ca_cert`,
+  `:client_cert`, `:private_key`, `:private_key_passwd`, `:dh_file`, their
+  phase 2 versions ending in `2`, `:pin` and `:pac_file`), and the MACsec
+  options (`:macsec_policy`, `:macsec_integ_only`, `:macsec_replay_protect`,
+  `:macsec_replay_window`, `:macsec_port`, `:mka_cak`, `:mka_ckn`,
+  `:mka_priority`). See the `wpa_supplicant.conf` documentation for what they
+  do. Other options are ignored.
+
+  When the private key is in an HSM, set `:pkcs11_engine_path` to the OpenSSL
+  PKCS #11 engine and `:pkcs11_module_path` to the PKCS #11 module for the
+  HSM, and pass a PKCS #11 URI as the `:private_key`. `wpa_supplicant` is a
+  separate OS process, so an engine that's loaded in the Erlang VM isn't
+  available to it.
 
   An example IEEE 802.1X configuration is:
 
@@ -67,6 +73,26 @@ defmodule VintageNetEthernet do
       identity: "user",
       password: "password",
       phase2: "auth=MSCHAPV2"
+    },
+    ipv4: %{method: :dhcp}
+  }
+  ```
+
+  An example EAP-TLS configuration with the private key in an HSM is:
+
+  ```elixir
+  %{
+    type: VintageNetEthernet,
+    vintage_net_ethernet: %{
+      pkcs11_engine_path: "/usr/lib/engines-3/libpkcs11.so",
+      pkcs11_module_path: "/path/to/pkcs11_module.so",
+      key_mgmt: :IEEE8021X,
+      eap: "TLS",
+      identity: "host/device.example.com",
+      ca_cert: "/data/radius_ca.pem",
+      domain_suffix_match: "radius.example.com",
+      client_cert: "/data/device_cert.pem",
+      private_key: "pkcs11:token=0"
     },
     ipv4: %{method: :dhcp}
   }
@@ -186,10 +212,22 @@ defmodule VintageNetEthernet do
   defp ethernet_to_supplicant_contents(ethernet, control_interface_dir) do
     config = [
       "ctrl_interface=#{control_interface_dir}"
+      | options_config(global_options(), ethernet)
     ]
 
     iodata = [into_newlines(config), into_ethernet_network_config(ethernet)]
     IO.chardata_to_string(iodata)
+  end
+
+  # wpa_supplicant options that go outside of the network block. These are
+  # written as is since wpa_supplicant doesn't unquote them.
+  defp global_options() do
+    [
+      # Where to find the OpenSSL PKCS #11 engine and the PKCS #11 module when
+      # the private key is in an HSM
+      pkcs11_engine_path: :raw,
+      pkcs11_module_path: :raw
+    ]
   end
 
   # wpa_supplicant network options that make sense on a wired interface in
@@ -209,6 +247,7 @@ defmodule VintageNetEthernet do
       ocsp: :raw,
       openssl_ciphers: :string,
       erp: :raw,
+      domain_suffix_match: :string,
 
       # Certificates and keys. These are paths or blob references.
       ca_cert: :string,
@@ -221,6 +260,7 @@ defmodule VintageNetEthernet do
       private_key2: :string,
       private_key_passwd: :string,
       private_key2_passwd: :string,
+      pin: :string,
       pac_file: :string,
 
       # MACsec settings
@@ -236,12 +276,13 @@ defmodule VintageNetEthernet do
   end
 
   defp into_ethernet_network_config(ethernet) do
-    options =
-      for {key, type} <- network_options(), value = ethernet[key], value != nil do
-        "#{key}=#{option_value(type, value)}"
-      end
+    network_config([key_mgmt_config(ethernet) | options_config(network_options(), ethernet)])
+  end
 
-    network_config([key_mgmt_config(ethernet) | options])
+  defp options_config(options, ethernet) do
+    for {key, type} <- options, value = ethernet[key], value != nil do
+      "#{key}=#{option_value(type, value)}"
+    end
   end
 
   defp key_mgmt_config(%{key_mgmt: key_mgmt}) do
