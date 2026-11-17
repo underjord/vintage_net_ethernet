@@ -19,8 +19,7 @@ defmodule VintageNetEthernet do
     as the address.
   * `:vintage_net_ethernet` - `wpa_supplicant` options for wired IEEE 802.1X
     or MACsec. When present, a `wpa_supplicant` is run on the interface using
-    the `wired` driver. Either pass network options like `:key_mgmt`, `:eap`,
-    `:identity` and `:password` (see `VintageNetWiFi` for their meaning) or
+    the `wired` driver. Either pass `wpa_supplicant` network options or
     pass the contents of a `wpa_supplicant.conf` as `:wpa_supplicant_conf`. This
     requires adding `:vintage_net_supplicant` to your dependencies.
   * `:verbose` - Set to `true` to enable verbose `wpa_supplicant` logging
@@ -44,6 +43,18 @@ defmodule VintageNetEthernet do
     }
   }
   ```
+
+  The supported `wpa_supplicant` network options are `:key_mgmt`
+  (`:IEEE8021X` or `:none`), the EAP options (`:eap`, `:identity`,
+  `:anonymous_identity`, `:password`, `:phase1`, `:phase2`, `:eapol_flags`,
+  `:fragment_size`, `:ocsp`, `:openssl_ciphers`, `:erp`), the certificate and
+  key options (`:ca_cert`, `:client_cert`, `:private_key`,
+  `:private_key_passwd`, `:dh_file`, their phase 2 versions ending in `2`,
+  and `:pac_file`), and the MACsec options (`:macsec_policy`,
+  `:macsec_integ_only`, `:macsec_replay_protect`, `:macsec_replay_window`,
+  `:macsec_port`, `:mka_cak`, `:mka_ckn`, `:mka_priority`). See the
+  `wpa_supplicant.conf` documentation for what they do. Other options are
+  ignored.
 
   An example IEEE 802.1X configuration is:
 
@@ -181,263 +192,69 @@ defmodule VintageNetEthernet do
     IO.chardata_to_string(iodata)
   end
 
-  defp into_ethernet_network_config(ethernet) do
-    key_mgmt =
-      if Map.has_key?(ethernet, :allowed_key_mgmt), do: :allowed_key_mgmt, else: :key_mgmt
-
-    network_config([
-      # Common settings
-      into_config_string(ethernet, :ssid),
-      into_config_string(ethernet, :bssid),
-      into_config_string(ethernet, key_mgmt),
-      into_config_string(ethernet, :scan_ssid),
-      into_config_string(ethernet, :priority),
-      into_config_string(ethernet, :bssid_allowlist),
-      into_config_string(ethernet, :bssid_denylist),
-      into_config_string(ethernet, :wps_disabled),
-      into_config_string(ethernet, :mode),
-      into_config_string(ethernet, :frequency),
-      into_config_string(ethernet, :ieee80211w),
-
-      # WPA-PSK settings
-      into_config_string(ethernet, :psk),
-      into_config_string(ethernet, :wpa_ptk_rekey),
-
-      # MACSEC settings
-      into_config_string(ethernet, :macsec_policy),
-      into_config_string(ethernet, :macsec_integ_only),
-      into_config_string(ethernet, :macsec_replay_protect),
-      into_config_string(ethernet, :macsec_replay_window),
-      into_config_string(ethernet, :macsec_port),
-      into_config_string(ethernet, :mka_cak),
-      into_config_string(ethernet, :mka_ckn),
-      into_config_string(ethernet, :mka_priority),
-
+  # wpa_supplicant network options that make sense on a wired interface in
+  # the order that they're written. Strings get quoted and escaped. Everything
+  # else is written as is.
+  defp network_options() do
+    [
       # EAP settings
-      into_config_string(ethernet, :identity),
-      into_config_string(ethernet, :anonymous_identity),
-      into_config_string(ethernet, :password),
-      into_config_string(ethernet, :pairwise),
-      into_config_string(ethernet, :group),
-      into_config_string(ethernet, :group_mgmt),
-      into_config_string(ethernet, :eap),
-      into_config_string(ethernet, :eapol_flags),
-      into_config_string(ethernet, :phase1),
-      into_config_string(ethernet, :phase2),
-      into_config_string(ethernet, :fragment_size),
-      into_config_string(ethernet, :ocsp),
-      into_config_string(ethernet, :openssl_ciphers),
-      into_config_string(ethernet, :erp),
+      eap: :raw,
+      identity: :string,
+      anonymous_identity: :string,
+      password: :string,
+      phase1: :string,
+      phase2: :string,
+      eapol_flags: :raw,
+      fragment_size: :raw,
+      ocsp: :raw,
+      openssl_ciphers: :string,
+      erp: :raw,
 
-      # SAE settings
-      into_config_string(ethernet, :sae_password),
+      # Certificates and keys. These are paths or blob references.
+      ca_cert: :string,
+      ca_cert2: :string,
+      dh_file: :string,
+      dh_file2: :string,
+      client_cert: :string,
+      client_cert2: :string,
+      private_key: :string,
+      private_key2: :string,
+      private_key_passwd: :string,
+      private_key2_passwd: :string,
+      pac_file: :string,
 
-      # TODO:
-      # These parts are files.
-      # They should probably be added to the `files` part
-      # of raw_config
-      into_config_string(ethernet, :ca_cert),
-      into_config_string(ethernet, :ca_cert2),
-      into_config_string(ethernet, :dh_file),
-      into_config_string(ethernet, :dh_file2),
-      into_config_string(ethernet, :client_cert),
-      into_config_string(ethernet, :client_cert2),
-      into_config_string(ethernet, :private_key),
-      into_config_string(ethernet, :private_key2),
-      into_config_string(ethernet, :private_key_passwd),
-      into_config_string(ethernet, :private_key2_passwd),
-      into_config_string(ethernet, :pac_file),
-
-      # WEP Settings
-      into_config_string(ethernet, :auth_alg),
-      into_config_string(ethernet, :wep_key0),
-      into_config_string(ethernet, :wep_key1),
-      into_config_string(ethernet, :wep_key2),
-      into_config_string(ethernet, :wep_key3),
-      into_config_string(ethernet, :wep_tx_keyidx),
-
-      # SIM Settings
-      into_config_string(ethernet, :pin),
-      into_config_string(ethernet, :pcsc)
-    ])
+      # MACsec settings
+      macsec_policy: :raw,
+      macsec_integ_only: :raw,
+      macsec_replay_protect: :raw,
+      macsec_replay_window: :raw,
+      macsec_port: :raw,
+      mka_cak: :raw,
+      mka_ckn: :raw,
+      mka_priority: :raw
+    ]
   end
 
-  defp into_config_string(ethernet, opt_key) do
-    case Map.get(ethernet, opt_key) do
-      nil -> nil
-      opt -> ethernet_opt_to_config_string(ethernet, opt_key, opt)
-    end
+  defp into_ethernet_network_config(ethernet) do
+    options =
+      for {key, type} <- network_options(), value = ethernet[key], value != nil do
+        "#{key}=#{option_value(type, value)}"
+      end
+
+    network_config([key_mgmt_config(ethernet) | options])
   end
 
-  defp ethernet_opt_to_config_string(_ethernet, :ssid, ssid) do
-    process_ssid = ssid |> escape_string |> do_wpa_supplicant_ssid_hack()
-    "ssid=#{process_ssid}"
+  defp key_mgmt_config(%{key_mgmt: key_mgmt}) do
+    "key_mgmt=#{key_mgmt |> List.wrap() |> Enum.map_join(" ", &key_mgmt_to_string/1)}"
   end
 
-  defp ethernet_opt_to_config_string(_ethernet, :bssid, bssid) do
-    "bssid=#{bssid}"
-  end
+  defp key_mgmt_config(_ethernet), do: nil
 
-  defp ethernet_opt_to_config_string(_ethernet, :psk, psk) do
-    "psk=#{psk}"
-  end
+  defp key_mgmt_to_string(:IEEE8021X), do: "IEEE8021X"
+  defp key_mgmt_to_string(:none), do: "NONE"
 
-  defp ethernet_opt_to_config_string(_ethernet, :wpa_ptk_rekey, wpa_ptk_rekey) do
-    "wpa_ptk_rekey=#{wpa_ptk_rekey}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, key_mgmt_key, key_mgmt)
-       when key_mgmt_key in [:key_mgmt, :allowed_key_mgmt] do
-    "key_mgmt=#{key_mgmt_to_string(key_mgmt)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :mode, mode) do
-    "mode=#{mode_to_string(mode)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :ap_scan, value) do
-    "ap_scan=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :scan_ssid, value) do
-    "scan_ssid=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :priority, value) do
-    "priority=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :frequency, value) do
-    "frequency=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :identity, value) do
-    "identity=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :anonymous_identity, value) do
-    "anonymous_identity=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :password, value) do
-    "password=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :phase1, value) do
-    "phase1=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :phase2, value) do
-    "phase2=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :pairwise, value) do
-    "pairwise=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :group, value) do
-    "group=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :eap, value) do
-    "eap=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :eapol_flags, value) do
-    "eapol_flags=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :ca_cert, value) do
-    "ca_cert=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :ca_cert2, value) do
-    "ca_cert2=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :client_cert, value) do
-    "client_cert=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :client_cert2, value) do
-    "client_cert2=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :private_key, value) do
-    "private_key=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :private_key2, value) do
-    "private_key2=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :private_key_passwd, value) do
-    "private_key_passwd=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :private_key2_passwd, value) do
-    "private_key2_passwd=#{escape_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :pin, value) do
-    "pin=#{inspect(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :wep_tx_keyidx, value) do
-    "wep_tx_keyidx=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :wep_key0, value) do
-    "wep_key0=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :wep_key1, value) do
-    "wep_key1=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :wep_key2, value) do
-    "wep_key2=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :wep_key3, value) do
-    "wep_key3=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :pcsc, value) do
-    "pcsc=#{inspect(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :bssid_denylist, value) do
-    "bssid_blacklist=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :bssid_allowlist, value) do
-    "bssid_whitelist=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :bgscan, value) do
-    "bgscan=#{bgscan_to_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :passive_scan, value) do
-    "passive_scan=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :user_mpm, value) do
-    "user_mpm=#{value}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :sae_password, value) do
-    "sae_password=\"#{value}\""
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :ieee80211w, value) do
-    "ieee80211w=#{pmk_to_string(value)}"
-  end
-
-  defp ethernet_opt_to_config_string(_ethernet, :wps_cred_processing, value) do
-    "wps_cred_processing=#{value}"
-  end
+  defp option_value(:string, value), do: escape_string(value)
+  defp option_value(:raw, value), do: to_string(value)
 
   defp network_config(config) do
     ["network={", "\n", into_newlines(config), "}", "\n"]
@@ -455,50 +272,6 @@ defmodule VintageNetEthernet do
       conf -> [conf, "\n"]
     end)
   end
-
-  defp do_wpa_supplicant_ssid_hack("\"" <> str) when byte_size(str) > 33 do
-    # Work around wpa_supplicant complaining about SSIDs that are too
-    # long when their unescaped length is greater than 32 characters
-    Logger.warning("Trimming unusual SSID to avoid wpa_supplicant issue. Check config.")
-    trimmed = binary_part(str, 0, 32) |> trim_orphan_backslash()
-    "\"" <> trimmed <> "\""
-  end
-
-  defp do_wpa_supplicant_ssid_hack(str), do: str
-
-  defp trim_orphan_backslash(<<s::30-bytes, second_last, ?\\>>) when second_last != ?\\ do
-    <<s::binary, second_last>>
-  end
-
-  defp trim_orphan_backslash(s), do: s
-
-  defp key_mgmt_to_string(key_mgmt) do
-    key_mgmt |> List.wrap() |> Enum.map_join(" ", &key_mgmt_item_to_string/1)
-  end
-
-  defp key_mgmt_item_to_string(:none), do: "NONE"
-  defp key_mgmt_item_to_string(:wpa_psk), do: "WPA-PSK"
-  defp key_mgmt_item_to_string(:wpa_psk_sha256), do: "WPA-PSK-SHA256"
-  defp key_mgmt_item_to_string(:wpa_eap), do: "WPA-EAP"
-  defp key_mgmt_item_to_string(:IEEE8021X), do: "IEEE8021X"
-  defp key_mgmt_item_to_string(:sae), do: "SAE"
-
-  defp mode_to_string(:infrastructure), do: "0"
-  defp mode_to_string(:ibss), do: "1"
-  defp mode_to_string(:ap), do: "2"
-  defp mode_to_string(:p2p_go), do: "3"
-  defp mode_to_string(:p2p_group_formation), do: "4"
-  defp mode_to_string(:mesh), do: "5"
-
-  defp bgscan_to_string(:simple), do: "\"simple\""
-  defp bgscan_to_string({:simple, args}), do: "\"simple:#{args}\""
-  defp bgscan_to_string(:learn), do: "\"learn\""
-  defp bgscan_to_string({:learn, args}), do: "\"learn:#{args}\""
-
-  defp pmk_to_string(n) when n in [0, 1, 2], do: Integer.to_string(n)
-  defp pmk_to_string(:disabled), do: "0"
-  defp pmk_to_string(:optional), do: "1"
-  defp pmk_to_string(:required), do: "2"
 
   defp add_mac_address_config(raw_config, %{mac_address: mac_address}) do
     resolved_mac = resolve_mac(mac_address)

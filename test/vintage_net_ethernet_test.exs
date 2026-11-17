@@ -59,9 +59,9 @@ defmodule VintageNetEthernetTest do
          ctrl_interface=/tmp/vintage_net/wpa_supplicant
          network={
          key_mgmt=IEEE8021X
+         eap=PEAP
          identity="user"
          password="password"
-         eap=PEAP
          phase2="auth=MSCHAPV2"
          }
          """}
@@ -88,6 +88,68 @@ defmodule VintageNetEthernetTest do
     }
 
     assert output == Ethernet.to_raw_config("eth0", input, Utils.default_opts())
+  end
+
+  defp supplicant_conf(ethernet) do
+    input = %{type: Ethernet, vintage_net_ethernet: ethernet, ipv4: %{method: :dhcp}}
+    [{_path, contents}] = Ethernet.to_raw_config("eth0", input, Utils.default_opts()).files
+    contents
+  end
+
+  test "create an EAP-TLS configuration" do
+    assert supplicant_conf(%{
+             key_mgmt: :IEEE8021X,
+             eap: "TLS",
+             identity: "host/device.example.com",
+             ca_cert: "/data/ca.pem",
+             client_cert: "/data/cert.pem",
+             private_key: "/data/key.pem",
+             private_key_passwd: "it's a \"secret\"",
+             eapol_flags: 0
+           }) == """
+           ctrl_interface=/tmp/vintage_net/wpa_supplicant
+           network={
+           key_mgmt=IEEE8021X
+           eap=TLS
+           identity="host/device.example.com"
+           eapol_flags=0
+           ca_cert="/data/ca.pem"
+           client_cert="/data/cert.pem"
+           private_key="/data/key.pem"
+           private_key_passwd="it's a \\"secret\\""
+           }
+           """
+  end
+
+  test "create a MACsec PSK configuration" do
+    assert supplicant_conf(%{
+             key_mgmt: :none,
+             eapol_flags: 0,
+             macsec_policy: 1,
+             mka_cak: "0123456789ABCDEF0123456789ABCDEF",
+             mka_ckn: "6162636465666768696A6B6C6D6E6F707172737475767778797A303132333435",
+             mka_priority: 128
+           }) == """
+           ctrl_interface=/tmp/vintage_net/wpa_supplicant
+           network={
+           key_mgmt=NONE
+           eapol_flags=0
+           macsec_policy=1
+           mka_cak=0123456789ABCDEF0123456789ABCDEF
+           mka_ckn=6162636465666768696A6B6C6D6E6F707172737475767778797A303132333435
+           mka_priority=128
+           }
+           """
+  end
+
+  test "WiFi-only options are ignored" do
+    assert supplicant_conf(%{key_mgmt: :IEEE8021X, eap: "TLS", ssid: "nope", psk: "nope"}) == """
+           ctrl_interface=/tmp/vintage_net/wpa_supplicant
+           network={
+           key_mgmt=IEEE8021X
+           eap=TLS
+           }
+           """
   end
 
   test "create a configuration with a raw wpa_supplicant.conf" do
